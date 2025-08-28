@@ -62,13 +62,59 @@ def _parse_euro_to_int(euro_text: str) -> int:
 
 
 def _iso_from_ddmmyy(s: str) -> str:
-    # Matches "26/08/25" → "2025-08-26"
+    """
+    From a string, find the first dd/mm/yy occurrence and return YYYY-MM-DD.
+    """
     m = re.search(r"\b(\d{2})/(\d{2})/(\d{2})\b", s)
     if not m:
         raise ValueError(f"Could not find dd/mm/yy in: {s[:120]!r}")
     d, mth, yy = map(int, m.groups())
     year = 2000 + yy  # EuroMillions started in 2004; 20xx is safe
     return date(year, mth, d).isoformat()
+
+
+def _find_latest_date_iso_from_page(soup: BeautifulSoup) -> str:
+    """
+    Robustly find the latest date by scanning the whole document for
+    'Weekday dd/mm/yy' first; if not found, any 'dd/mm/yy'.
+    """
+    full_text = soup.get_text(" ", strip=True)
+
+    # Prefer a weekday-labelled date (e.g., 'Tue 26/08/25')
+    m = re.search(
+        r"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{2}/\d{2}/\d{2})\b",
+        full_text,
+        flags=re.I,
+    )
+    if m:
+        return _iso_from_ddmmyy(m.group(1))
+
+    # Fallback: first dd/mm/yy anywhere
+    return _iso_from_ddmmyy(full_text)
+
+
+def _find_first_numbers_after_label(
+    soup: BeautifulSoup, label_regex: str, count: int
+) -> List[int]:
+    """
+    Find the first node matching label_regex (e.g., 'Winning numbers'),
+    then collect the next 'count' numeric tokens encountered in document order.
+    """
+    label = soup.find(string=re.compile(label_regex, re.I))
+    if not label:
+        return []
+    results: List[int] = []
+    for el in label.find_all_next(True, limit=200):
+        t = el.get_text(strip=True)
+        if re.fullmatch(r"\d{1,2}", t):
+            results.append(int(t))
+            if len(results) == count:
+                break
+        # Break if we clearly left the block (optional heuristic)
+        if isinstance(el.string, str) and re.search(r"\* \* \*|View prize breakdown", el.string):
+            # keep going; sometimes numbers are before this
+            continue
+    return results
 
 
 def scrape_latest_from_irish_history(html_text: str) -> Dict[str, Any]:
@@ -83,78 +129,53 @@ def scrape_latest_from_irish_history(html_text: str) -> Dict[str, Any]:
     """
     soup = BeautifulSoup(html_text, "html.parser")
 
-    # 1) Find the first "Jackpot" label on page (the top/most recent card)
+    # --- Jackpot (first 'Jackpot' occurrence on the page) ---
     jackpot_label = soup.find(string=re.compile(r"\bJackpot\b", re.I))
     if not jackpot_label:
         raise RuntimeError("Couldn't find 'Jackpot' label on the page.")
-    # The amount should be very near; look for a euro string right after.
+
+    # Try to get the euro amount right after 'Jackpot'
     jackpot_node = jackpot_label.find_next(string=re.compile(r"€[\s\d,]+"))
-    if not jackpot_node:
-        # Some builds wrap it in <p class="font-black text-xl">…</p>
-        euro_p = jackpot_label.find_next("p", class_=re.compile(r"\bfont-black\b.*\btext-xl\b"))
-        if euro_p:
-            jackpot_text = euro_p.get_text(strip=True)
-        else:
-            raise RuntimeError("Couldn't find jackpot amount after 'Jackpot'.")
-    else:
+    if jackpot_node:
         jackpot_text = jackpot_node.strip()
+    else:
+        # Some builds wrap it in a styled <p>
+        euro_p = jackpot_label.find_next("p", class_=re.compile(r"\bfont-black\b.*\btext-xl\b"))
+        if not euro_p:
+            # Fallback: scan a small window after the label for a euro amount
+            window_text = " ".join(
+                list(jackpot_label.find_all_next(string=True, limit=50))
+            )
+            euro_match = re.search(r"€[\s\d,]+", window_text or "")
+            if not euro_match:
+                raise RuntimeError("Couldn't find jackpot amount after 'Jackpot'.")
+            jackpot_text = euro_match.group(0)
+        else:
+            jackpot_text = euro_p.get_text(strip=True)
     jackpot_eur = _parse_euro_to_int(jackpot_text)
 
-    # 2) Constrain to the latest card container:
-    section = jackpot_label
-    for _ in range(4):
-        if hasattr(section, "parent") and section.parent:
-            section = section.parent
-        else:
-            break
+    # --- Date (grab from whole page; first date is the latest) ---
+    latest_date_iso = _find_latest_date_iso_from_page(soup)
 
-    section_text = section.get_text(" ", strip=True)
-
-    # 3) Date in header like "Tue 26/08/25"
-    latest_date_iso = _iso_from_ddmmyy(section_text)
-
-    # 4) Winning numbers: capture the first 5 integers after "Winning numbers".
-    numbers_label = section.find(string=re.compile(r"Winning numbers", re.I))
-    if not numbers_label:
-        raise RuntimeError("Couldn't find 'Winning numbers' label.")
-    numbers: List[int] = []
-    for el in numbers_label.find_all_next(True, limit=60):
-        t = el.get_text(strip=True)
-        if re.fullmatch(r"\d{1,2}", t):
-            numbers.append(int(t))
-            if len(numbers) == 5:
-                break
-        # stop scanning if we hit the "Lucky Stars" label
-        if isinstance(el.string, str) and re.search(r"Lucky\s+Stars", el.string, re.I):
-            break
+    # --- Numbers & Stars (first 'Winning numbers' / 'Lucky Stars' on page) ---
+    numbers = _find_first_numbers_after_label(soup, r"\bWinning numbers\b", 5)
     if len(numbers) != 5:
-        # Fallback: scan raw text between labels
-        after = section_text.split("Winning numbers", 1)[-1]
+        # Fallback: try to slice between 'Winning numbers' and 'Lucky Stars' in full text
+        full_text = soup.get_text(" ", strip=True)
+        after = full_text.split("Winning numbers", 1)[-1]
         before_stars = after.split("Lucky Stars", 1)[0]
         numbers = [int(x) for x in re.findall(r"\b\d{1,2}\b", before_stars)[:5]]
     if len(numbers) != 5:
-        raise RuntimeError("Failed to extract 5 main numbers.")
+        raise RuntimeError("Failed to extract 5 main numbers from page.")
 
-    # 5) Lucky Stars: next two integers after "Lucky Stars"
-    stars_label = section.find(string=re.compile(r"Lucky\s+Stars", re.I))
-    if not stars_label:
-        raise RuntimeError("Couldn't find 'Lucky Stars' label.")
-    stars: List[int] = []
-    for el in stars_label.find_all_next(True, limit=30):
-        t = el.get_text(strip=True)
-        if re.fullmatch(r"\d{1,2}", t):
-            stars.append(int(t))
-            if len(stars) == 2:
-                break
-        # stop at common breaks
-        if isinstance(el.string, str) and re.search(r"View prize breakdown|\* \* \*", el.string):
-            break
+    stars = _find_first_numbers_after_label(soup, r"\bLucky\s+Stars\b", 2)
     if len(stars) != 2:
-        # Fallback from text
-        after = section_text.split("Lucky Stars", 1)[-1]
+        # Fallback from full text
+        full_text = soup.get_text(" ", strip=True)
+        after = full_text.split("Lucky Stars", 1)[-1]
         stars = [int(x) for x in re.findall(r"\b\d{1,2}\b", after)[:2]]
     if len(stars) != 2:
-        raise RuntimeError("Failed to extract 2 Lucky Stars.")
+        raise RuntimeError("Failed to extract 2 Lucky Stars from page.")
 
     return {
         "date": latest_date_iso,
@@ -254,7 +275,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
         return "".join(f'<span class="star">{n}</span>' for n in nums)
 
     ok_text = "✅ Verified vs API" if verdict["all_ok"] else "⚠️ Mismatch with API"
-    jacket = f"€{latest['jackpot_eur']:,}"
+    jackpot_fmt = f"€{latest['jackpot_eur']:,}"
 
     # Build history table rows (avoid nested f-strings)
     rows: List[str] = []
@@ -316,7 +337,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
       <div class="row" style="margin-top:16px;">
         <div class="stat">
           <div class="muted">Jackpot</div>
-          <div class="jackpot">{jacket}</div>
+          <div class="jackpot">{jackpot_fmt}</div>
         </div>
         <div class="chip {'ok' if verdict['all_ok'] else 'warn'}">{ok_text}</div>
       </div>
