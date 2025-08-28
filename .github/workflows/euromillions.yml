@@ -3,13 +3,13 @@ name: Update EuroMillions data
 on:
   workflow_dispatch:   # allow manual runs
   schedule:
-    # Wednesday morning 07:00 UTC (08:00 CET/CEST) after Tuesday draw
+    # Morning after Tuesday draw (Wednesday 07:00 UTC ~ 08:00 CET/CEST)
     - cron: "0 7 * * 3"
-    # Wednesday afternoon 13:00 UTC (14:00 CET/CEST) backup run
+    # Backup run later the same day (Wednesday 13:00 UTC ~ 14:00 CET/CEST)
     - cron: "0 13 * * 3"
-    # Saturday morning 07:00 UTC (08:00 CET/CEST) after Friday draw
+    # Morning after Friday draw (Saturday 07:00 UTC ~ 08:00 CET/CEST)
     - cron: "0 7 * * 6"
-    # Saturday afternoon 13:00 UTC (14:00 CET/CEST) backup run
+    # Backup run later the same day (Saturday 13:00 UTC ~ 14:00 CET/CEST)
     - cron: "0 13 * * 6"
 
 permissions:
@@ -30,16 +30,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4
+          pip install requests
 
-      - name: Run update script
+      - name: Update EuroMillions data (API only)
         run: |
           python update_euromillions.py --out-dir site
 
       - name: Commit results
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: update EuroMillions data"
+          commit_message: "chore: update EuroMillions data (API-only)"
           file_pattern: |
             euromillions.json
             latest.json
