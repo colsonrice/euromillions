@@ -11,23 +11,23 @@ update_euromillions.py
     * latest.json        (handy small object)
     * site/index.html    (a simple static status page)
 
-Citations:
-- Irish National Lottery EuroMillions history page:
+Sources:
+- Irish National Lottery EuroMillions history:
   https://www.lottery.ie/results/euromillions/history
-- Pedro Mealha Euromillions API (v1/draws):
+- Euromillions API (v1/draws):
   https://euromillions.api.pedromealha.dev
 """
 
 from __future__ import annotations
 
+import argparse
+import html
 import json
 import os
 import re
 import sys
-import html
-import argparse
 from datetime import datetime, date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -101,8 +101,6 @@ def scrape_latest_from_irish_history(html_text: str) -> Dict[str, Any]:
     jackpot_eur = _parse_euro_to_int(jackpot_text)
 
     # 2) Constrain to the latest card container:
-    # walk upward a bit to a reasonable ancestor,
-    # then search within that section for date / numbers / stars.
     section = jackpot_label
     for _ in range(4):
         if hasattr(section, "parent") and section.parent:
@@ -115,7 +113,7 @@ def scrape_latest_from_irish_history(html_text: str) -> Dict[str, Any]:
     # 3) Date in header like "Tue 26/08/25"
     latest_date_iso = _iso_from_ddmmyy(section_text)
 
-    # 4) Winning numbers: capture the first 5 integers *after* the "Winning numbers" label.
+    # 4) Winning numbers: capture the first 5 integers after "Winning numbers".
     numbers_label = section.find(string=re.compile(r"Winning numbers", re.I))
     if not numbers_label:
         raise RuntimeError("Couldn't find 'Winning numbers' label.")
@@ -148,7 +146,7 @@ def scrape_latest_from_irish_history(html_text: str) -> Dict[str, Any]:
             stars.append(int(t))
             if len(stars) == 2:
                 break
-        # stop at the horizontal rule / break
+        # stop at common breaks
         if isinstance(el.string, str) and re.search(r"View prize breakdown|\* \* \*", el.string):
             break
     if len(stars) != 2:
@@ -168,12 +166,12 @@ def scrape_latest_from_irish_history(html_text: str) -> Dict[str, Any]:
 
 def normalize_api_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Make best-effort to normalize fields coming from the v1/draws endpoint.
-    Expected (based on docs/community usage):
-      - date: e.g., '2025-08-26' or iso datetime
+    Normalize fields from the v1/draws endpoint.
+    Expected:
+      - date: 'YYYY-MM-DD' (or ISO datetime); we coerce to YYYY-MM-DD when possible
       - numbers: list[int] (5)
       - stars: list[int] (2)
-      - prize or jackpot amount in euros (key often 'prize' or 'jackpot')
+      - jackpot/prize in euros
     """
     # date
     date_val = (
@@ -183,12 +181,10 @@ def normalize_api_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
         or raw.get("draw_time")
     )
     if isinstance(date_val, str):
-        # Try to coerce to YYYY-MM-DD
         m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", date_val)
         if m:
             date_iso = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
         else:
-            # Could be ISO datetime; strip time
             try:
                 date_iso = datetime.fromisoformat(date_val.replace("Z", "+00:00")).date().isoformat()
             except Exception:
@@ -201,6 +197,7 @@ def normalize_api_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(numbers, str):
         numbers = [int(x) for x in re.findall(r"\d{1,2}", numbers)]
     numbers = list(numbers or [])
+
     # stars
     stars = raw.get("stars") or raw.get("lucky_stars") or raw.get("luckyStars")
     if isinstance(stars, str):
@@ -226,11 +223,11 @@ def normalize_api_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def verify(scraped: Dict[str, Any], api_latest: Dict[str, Any]) -> Dict[str, Any]:
+def verify_latest(scraped: Dict[str, Any], api_latest: Dict[str, Any]) -> Dict[str, Any]:
     eq_date = (scraped["date"] == api_latest["date"])
     eq_numbers = (scraped["numbers"] == api_latest["numbers"])
     eq_stars = (scraped["stars"] == api_latest["stars"])
-    # Jackpot can differ if API lacks value for some draws; compare only if present.
+    # Jackpot may be missing on some API entries; only compare if present.
     eq_jackpot = (
         api_latest.get("jackpot_eur") is not None
         and scraped["jackpot_eur"] == api_latest.get("jackpot_eur")
@@ -246,19 +243,39 @@ def verify(scraped: Dict[str, Any], api_latest: Dict[str, Any]) -> Dict[str, Any
 
 def render_html(out_path: str, context: Dict[str, Any]) -> None:
     latest = context["latest"]
-    verify = context["verification"]
-    hist_count = len(context["history"])
+    verdict = context["verification"]
+    hist = context["history"]
+    hist_count = len(hist)
 
-    def chip(nums: List[int]) -> str:
-        return "".join(
-            f'<span class="ball">{n}</span>' for n in nums
+    def balls_html(nums: List[int]) -> str:
+        return "".join(f'<span class="ball">{n}</span>' for n in nums)
+
+    def stars_html_fn(nums: List[int]) -> str:
+        return "".join(f'<span class="star">{n}</span>' for n in nums)
+
+    ok_text = "✅ Verified vs API" if verdict["all_ok"] else "⚠️ Mismatch with API"
+    jacket = f"€{latest['jackpot_eur']:,}"
+
+    # Build history table rows (avoid nested f-strings)
+    rows: List[str] = []
+    for d in hist[:200]:
+        date_str = d.get("date", "")
+        nums_str = " ".join(str(x) for x in d.get("numbers", []))
+        stars_str = " ".join(str(x) for x in d.get("stars", []))
+        jv = d.get("jackpot_eur")
+        jackpot_str = f"{int(jv):,}" if isinstance(jv, (int, float)) else ""
+        rows.append(
+            "<tr>"
+            f"<td>{date_str}</td>"
+            f"<td>{nums_str}</td>"
+            f"<td>{stars_str}</td>"
+            f"<td>{jackpot_str}</td>"
+            "</tr>"
         )
+    rows_html = "\n".join(rows)
 
-    stars_html = "".join(f'<span class="star">{s}</span>' for s in latest["stars"])
-    numbers_html = chip(latest["numbers"])
-
-    ok = "✅ Verified vs API" if verify["all_ok"] else "⚠️ Mismatch with API"
-    jackpot_fmt = f"€{latest['jackpot_eur']:,}"
+    numbers_html = balls_html(latest["numbers"])
+    stars_html = stars_html_fn(latest["stars"])
 
     html_str = f"""<!doctype html>
 <html lang="en">
@@ -299,9 +316,9 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
       <div class="row" style="margin-top:16px;">
         <div class="stat">
           <div class="muted">Jackpot</div>
-          <div class="jackpot">{jackpot_fmt}</div>
+          <div class="jackpot">{jacket}</div>
         </div>
-        <div class="chip {'ok' if verify['all_ok'] else 'warn'}">{ok}</div>
+        <div class="chip {'ok' if verdict['all_ok'] else 'warn'}">{ok_text}</div>
       </div>
 
       <div class="row">
@@ -321,7 +338,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
 
       <hr style="border:none; border-top:1px solid rgba(255,255,255,.1); margin: 12px 0 6px" />
       <div class="muted" style="font-size:14px">
-        Sources: <a href="https://www.lottery.ie/results/euromillions/history">lottery.ie results &raquo; EuroMillions &raquo; history</a> ·
+        Sources: <a href="https://www.lottery.ie/results/euromillions/history">lottery.ie results » EuroMillions » history</a> ·
         <a href="https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc">euromillions.api.pedromealha.dev</a>
       </div>
     </div>
@@ -332,7 +349,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
       <table>
         <thead><tr><th>Date</th><th>Numbers</th><th>Stars</th><th>Jackpot (€)</th></tr></thead>
         <tbody>
-          {''.join(f"<tr><td>{d['date']}</td><td>{' '.join(str(x) for x in d['numbers'])}</td><td>{' '.join(str(s) for s in d['stars'])}</td><td>{(d.get('jackpot_eur') and f'{d['jackpot_eur']:,}') or ''}</td></tr>" for d in context['history'][:200])}
+{rows_html}
         </tbody>
       </table>
       <footer>Showing up to 200 latest draws from the API.</footer>
@@ -364,7 +381,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     api_latest = normalized_history[0]
 
     # 3) Verify latest
-    verification = verify(scraped_latest, api_latest)
+    verification = verify_latest(scraped_latest, api_latest)
 
     now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     payload = {
