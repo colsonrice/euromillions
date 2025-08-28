@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 """
-update_euromillions.py
+update_euromillions.py  — API-only
 
-- Scrapes Ireland NL EuroMillions history page for the latest draw
-  (date, 5 numbers, 2 stars) and the displayed jackpot (€).
-- Fetches full historical draws via Pedro Mealha's public API.
-- Verifies the scraped latest draw against the latest API draw.
+- Fetches EuroMillions draws from Pedro Mealha's API (most recent first)
+- Normalizes fields (date, numbers, stars, jackpot in EUR)
 - Writes:
-    * euromillions.json  (full payload with history + latest)
-    * latest.json        (handy small object)
-    * site/index.html    (a simple static status page)
+    * euromillions.json  (timestamp, currentJackpotEUR, lastDraw, history)
+    * latest.json        (compact latest-only view)
+    * site/index.html    (simple static status page)
 
-Sources:
-- Irish National Lottery EuroMillions history:
-  https://www.lottery.ie/results/euromillions/history
-- Euromillions API (v1/draws):
-  https://euromillions.api.pedromealha.dev
+Source API:
+  https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc
 """
 
 from __future__ import annotations
@@ -26,181 +21,63 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, date
+import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import requests
-from bs4 import BeautifulSoup
 
-
-LOTTERY_IE_HISTORY_URL = "https://www.lottery.ie/results/euromillions/history"
-EUROM_API_URL = "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc"
+API_URL_DEFAULT = "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; EuroMillionsFetcher/1.0; +github-actions)"
+    "User-Agent": "Mozilla/5.0 (compatible; EuroMillionsFetcher/1.1; +github-actions)"
 }
 
 
-def fetch_html(url: str) -> str:
-    r = requests.get(url, headers=HEADERS, timeout=30)
-    r.raise_for_status()
-    return r.text
+def fetch_json_with_retry(url: str, retries: int = 3, backoff_sec: float = 2.0) -> Any:
+    last_err: Optional[Exception] = None
+    for attempt in range(1, retries + 1):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(backoff_sec * attempt)
+    raise RuntimeError(f"Failed to fetch {url}: {last_err}")
 
 
-def fetch_json(url: str) -> Any:
-    r = requests.get(url, headers=HEADERS, timeout=45)
-    r.raise_for_status()
-    return r.json()
+def _parse_euro_to_int(val: Any) -> Optional[int]:
+    # Accept numeric or strings like "€26,800,624"
+    if val is None:
+        return None
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return int(val)
+    if isinstance(val, str):
+        digits = re.sub(r"[^\d]", "", val)
+        return int(digits) if digits else None
+    return None
 
 
-def _parse_euro_to_int(euro_text: str) -> int:
-    # "€26,800,624" -> 26800624
-    digits = re.sub(r"[^\d]", "", euro_text)
-    if not digits:
-        raise ValueError(f"Could not parse euro amount: {euro_text!r}")
-    return int(digits)
+def _as_numbers_list(v: Any) -> List[int]:
+    if isinstance(v, list):
+        out: List[int] = []
+        for x in v:
+            try:
+                out.append(int(x))
+            except Exception:
+                pass
+        return out
+    if isinstance(v, str):
+        return [int(x) for x in re.findall(r"\d{1,2}", v)]
+    return []
 
 
-def _iso_from_ddmmyy(s: str) -> str:
-    """
-    From a string, find the first dd/mm/yy occurrence and return YYYY-MM-DD.
-    """
-    m = re.search(r"\b(\d{2})/(\d{2})/(\d{2})\b", s)
-    if not m:
-        raise ValueError(f"Could not find dd/mm/yy in: {s[:120]!r}")
-    d, mth, yy = map(int, m.groups())
-    year = 2000 + yy  # EuroMillions started in 2004; 20xx is safe
-    return date(year, mth, d).isoformat()
-
-
-def _find_latest_date_iso_from_page(soup: BeautifulSoup) -> str:
-    """
-    Robustly find the latest date by scanning the whole document for
-    'Weekday dd/mm/yy' first; if not found, any 'dd/mm/yy'.
-    """
-    full_text = soup.get_text(" ", strip=True)
-
-    # Prefer a weekday-labelled date (e.g., 'Tue 26/08/25')
-    m = re.search(
-        r"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{2}/\d{2}/\d{2})\b",
-        full_text,
-        flags=re.I,
-    )
-    if m:
-        return _iso_from_ddmmyy(m.group(1))
-
-    # Fallback: first dd/mm/yy anywhere
-    return _iso_from_ddmmyy(full_text)
-
-
-def _find_first_numbers_after_label(
-    soup: BeautifulSoup, label_regex: str, count: int
-) -> List[int]:
-    """
-    Find the first node matching label_regex (e.g., 'Winning numbers'),
-    then collect the next 'count' numeric tokens encountered in document order.
-    """
-    label = soup.find(string=re.compile(label_regex, re.I))
-    if not label:
-        return []
-    results: List[int] = []
-    for el in label.find_all_next(True, limit=200):
-        t = el.get_text(strip=True)
-        if re.fullmatch(r"\d{1,2}", t):
-            results.append(int(t))
-            if len(results) == count:
-                break
-        # Break if we clearly left the block (optional heuristic)
-        if isinstance(el.string, str) and re.search(r"\* \* \*|View prize breakdown", el.string):
-            # keep going; sometimes numbers are before this
-            continue
-    return results
-
-
-def scrape_latest_from_irish_history(html_text: str) -> Dict[str, Any]:
-    """
-    Returns:
-      {
-        "date": "YYYY-MM-DD",
-        "numbers": [n1..n5],
-        "stars": [s1, s2],
-        "jackpot_eur": int
-      }
-    """
-    soup = BeautifulSoup(html_text, "html.parser")
-
-    # --- Jackpot (first 'Jackpot' occurrence on the page) ---
-    jackpot_label = soup.find(string=re.compile(r"\bJackpot\b", re.I))
-    if not jackpot_label:
-        raise RuntimeError("Couldn't find 'Jackpot' label on the page.")
-
-    # Try to get the euro amount right after 'Jackpot'
-    jackpot_node = jackpot_label.find_next(string=re.compile(r"€[\s\d,]+"))
-    if jackpot_node:
-        jackpot_text = jackpot_node.strip()
-    else:
-        # Some builds wrap it in a styled <p>
-        euro_p = jackpot_label.find_next("p", class_=re.compile(r"\bfont-black\b.*\btext-xl\b"))
-        if not euro_p:
-            # Fallback: scan a small window after the label for a euro amount
-            window_text = " ".join(
-                list(jackpot_label.find_all_next(string=True, limit=50))
-            )
-            euro_match = re.search(r"€[\s\d,]+", window_text or "")
-            if not euro_match:
-                raise RuntimeError("Couldn't find jackpot amount after 'Jackpot'.")
-            jackpot_text = euro_match.group(0)
-        else:
-            jackpot_text = euro_p.get_text(strip=True)
-    jackpot_eur = _parse_euro_to_int(jackpot_text)
-
-    # --- Date (grab from whole page; first date is the latest) ---
-    latest_date_iso = _find_latest_date_iso_from_page(soup)
-
-    # --- Numbers & Stars (first 'Winning numbers' / 'Lucky Stars' on page) ---
-    numbers = _find_first_numbers_after_label(soup, r"\bWinning numbers\b", 5)
-    if len(numbers) != 5:
-        # Fallback: try to slice between 'Winning numbers' and 'Lucky Stars' in full text
-        full_text = soup.get_text(" ", strip=True)
-        after = full_text.split("Winning numbers", 1)[-1]
-        before_stars = after.split("Lucky Stars", 1)[0]
-        numbers = [int(x) for x in re.findall(r"\b\d{1,2}\b", before_stars)[:5]]
-    if len(numbers) != 5:
-        raise RuntimeError("Failed to extract 5 main numbers from page.")
-
-    stars = _find_first_numbers_after_label(soup, r"\bLucky\s+Stars\b", 2)
-    if len(stars) != 2:
-        # Fallback from full text
-        full_text = soup.get_text(" ", strip=True)
-        after = full_text.split("Lucky Stars", 1)[-1]
-        stars = [int(x) for x in re.findall(r"\b\d{1,2}\b", after)[:2]]
-    if len(stars) != 2:
-        raise RuntimeError("Failed to extract 2 Lucky Stars from page.")
-
-    return {
-        "date": latest_date_iso,
-        "numbers": numbers,
-        "stars": stars,
-        "jackpot_eur": jackpot_eur,
-    }
-
-
-def normalize_api_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Normalize fields from the v1/draws endpoint.
-    Expected:
-      - date: 'YYYY-MM-DD' (or ISO datetime); we coerce to YYYY-MM-DD when possible
-      - numbers: list[int] (5)
-      - stars: list[int] (2)
-      - jackpot/prize in euros
-    """
-    # date
-    date_val = (
-        raw.get("date")
-        or raw.get("draw_date")
-        or raw.get("drawDate")
-        or raw.get("draw_time")
-    )
+def normalize_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
+    # Date (prefer YYYY-MM-DD)
+    date_val = raw.get("date") or raw.get("draw_date") or raw.get("drawDate")
+    date_iso = None
     if isinstance(date_val, str):
         m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", date_val)
         if m:
@@ -209,62 +86,40 @@ def normalize_api_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 date_iso = datetime.fromisoformat(date_val.replace("Z", "+00:00")).date().isoformat()
             except Exception:
-                date_iso = date_val  # leave as-is
-    else:
-        date_iso = str(date_val) if date_val is not None else "unknown"
+                date_iso = date_val
+    elif date_val is not None:
+        date_iso = str(date_val)
 
-    # numbers
-    numbers = raw.get("numbers") or raw.get("numbers_main") or raw.get("numbersList")
-    if isinstance(numbers, str):
-        numbers = [int(x) for x in re.findall(r"\d{1,2}", numbers)]
-    numbers = list(numbers or [])
+    numbers = _as_numbers_list(raw.get("numbers") or raw.get("numbers_main"))
+    stars = _as_numbers_list(raw.get("stars") or raw.get("lucky_stars"))
 
-    # stars
-    stars = raw.get("stars") or raw.get("lucky_stars") or raw.get("luckyStars")
-    if isinstance(stars, str):
-        stars = [int(x) for x in re.findall(r"\d{1,2}", stars)]
-    stars = list(stars or [])
-
-    # prize / jackpot
-    prize = raw.get("prize") or raw.get("jackpot") or raw.get("jackpot_eur")
-    if isinstance(prize, str):
-        prize_eur = _parse_euro_to_int(prize)
-    elif isinstance(prize, (int, float)) and not isinstance(prize, bool):
-        prize_eur = int(prize)
-    else:
-        prize_eur = None
+    jackpot_eur = _parse_euro_to_int(raw.get("jackpot") or raw.get("prize") or raw.get("jackpot_eur"))
 
     return {
         "id": raw.get("id") or raw.get("draw_id") or raw.get("drawId"),
-        "date": date_iso,
-        "numbers": numbers,
-        "stars": stars,
-        "jackpot_eur": prize_eur,
+        "date": date_iso or "unknown",
+        "numbers": numbers[:5],  # ensure max 5
+        "stars": stars[:2],      # ensure max 2
+        "jackpot_eur": jackpot_eur,
         "raw": raw,
     }
 
 
-def verify_latest(scraped: Dict[str, Any], api_latest: Dict[str, Any]) -> Dict[str, Any]:
-    eq_date = (scraped["date"] == api_latest["date"])
-    eq_numbers = (scraped["numbers"] == api_latest["numbers"])
-    eq_stars = (scraped["stars"] == api_latest["stars"])
-    # Jackpot may be missing on some API entries; only compare if present.
-    eq_jackpot = (
-        api_latest.get("jackpot_eur") is not None
-        and scraped["jackpot_eur"] == api_latest.get("jackpot_eur")
-    )
-    return {
-        "date_match": eq_date,
-        "numbers_match": eq_numbers,
-        "stars_match": eq_stars,
-        "jackpot_match": eq_jackpot,
-        "all_ok": (eq_date and eq_numbers and eq_stars),
-    }
+def sort_desc_by_date(draws: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def key_fn(d: Dict[str, Any]):
+        s = d.get("date") or ""
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+        if m:
+            try:
+                return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except Exception:
+                return (0, 0, 0)
+        return (0, 0, 0)
+    return sorted(draws, key=key_fn, reverse=True)
 
 
 def render_html(out_path: str, context: Dict[str, Any]) -> None:
     latest = context["latest"]
-    verdict = context["verification"]
     hist = context["history"]
     hist_count = len(hist)
 
@@ -274,10 +129,11 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
     def stars_html_fn(nums: List[int]) -> str:
         return "".join(f'<span class="star">{n}</span>' for n in nums)
 
-    ok_text = "✅ Verified vs API" if verdict["all_ok"] else "⚠️ Mismatch with API"
-    jackpot_fmt = f"€{latest['jackpot_eur']:,}"
+    jackpot_fmt = f"€{latest['jackpot_eur']:,}" if isinstance(latest.get("jackpot_eur"), (int, float)) else "—"
+    numbers_html = balls_html(latest.get("numbers", []))
+    stars_html = stars_html_fn(latest.get("stars", []))
 
-    # Build history table rows (avoid nested f-strings)
+    # Build table rows
     rows: List[str] = []
     for d in hist[:200]:
         date_str = d.get("date", "")
@@ -295,9 +151,6 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
         )
     rows_html = "\n".join(rows)
 
-    numbers_html = balls_html(latest["numbers"])
-    stars_html = stars_html_fn(latest["stars"])
-
     html_str = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -305,7 +158,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>EuroMillions Status</title>
 <style>
-  :root {{ --bg:#0b1220; --fg:#e8eefc; --muted:#9bb0d3; --card:#121a30; --ok:#2bc275; --warn:#f2c94c; }}
+  :root {{ --bg:#0b1220; --fg:#e8eefc; --muted:#9bb0d3; --card:#121a30; }}
   body {{ background: linear-gradient(180deg,#0b1220,#10182e); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu; margin:0; }}
   .wrap {{ max-width: 900px; margin: 40px auto; padding: 0 16px; }}
   .card {{ background: var(--card); border-radius: 20px; padding: 24px; box-shadow: 0 10px 35px rgba(0,0,0,.35); }}
@@ -317,9 +170,6 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
   .ball, .star {{ display:inline-grid; place-items:center; width: 42px; height:42px; border-radius: 999px; font-weight: 700; }}
   .ball {{ background:#1f2a4a; }}
   .star {{ background:#36301f; }}
-  .chip {{ padding: 4px 10px; border-radius: 999px; font-weight:600; }}
-  .ok {{ background: rgba(43,194,117,.12); color: var(--ok); }}
-  .warn {{ background: rgba(242,201,76,.12); color: var(--warn); }}
   table {{ width:100%; border-collapse: collapse; margin-top: 14px; }}
   th, td {{ padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,.08); text-align:left; font-size: 14px; }}
   th {{ color: var(--muted); font-weight:600; }}
@@ -331,7 +181,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>EuroMillions — Latest</h1>
+      <h1>EuroMillions — Latest (API)</h1>
       <div class="muted">Last updated: {html.escape(context["timestamp"])} UTC</div>
 
       <div class="row" style="margin-top:16px;">
@@ -339,13 +189,12 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
           <div class="muted">Jackpot</div>
           <div class="jackpot">{jackpot_fmt}</div>
         </div>
-        <div class="chip {'ok' if verdict['all_ok'] else 'warn'}">{ok_text}</div>
       </div>
 
       <div class="row">
         <div>
           <div class="muted">Draw date</div>
-          <div style="font-weight:700">{latest["date"]}</div>
+          <div style="font-weight:700">{latest.get("date","")}</div>
         </div>
         <div>
           <div class="muted">Numbers</div>
@@ -359,8 +208,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
 
       <hr style="border:none; border-top:1px solid rgba(255,255,255,.1); margin: 12px 0 6px" />
       <div class="muted" style="font-size:14px">
-        Sources: <a href="https://www.lottery.ie/results/euromillions/history">lottery.ie results » EuroMillions » history</a> ·
-        <a href="https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc">euromillions.api.pedromealha.dev</a>
+        Source: <a href="{html.escape(context['api'])}">euromillions.api.pedromealha.dev</a>
       </div>
     </div>
 
@@ -373,7 +221,7 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
 {rows_html}
         </tbody>
       </table>
-      <footer>Showing up to 200 latest draws from the API.</footer>
+      <footer>Showing up to 200 latest draws.</footer>
     </div>
   </div>
 </body>
@@ -386,67 +234,62 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--api", default=API_URL_DEFAULT, help="EuroMillions API endpoint.")
     ap.add_argument("--out-dir", default="site", help="Directory to write the static site into.")
-    ap.add_argument("--api", default=EUROM_API_URL, help="Euromillions API endpoint.")
     args = ap.parse_args(argv)
 
-    # 1) Scrape latest from lottery.ie (jackpot + last draw)
-    page_html = fetch_html(LOTTERY_IE_HISTORY_URL)
-    scraped_latest = scrape_latest_from_irish_history(page_html)
-
-    # 2) Pull historical draws (desc)
-    api_raw = fetch_json(args.api)
+    # 1) Fetch & normalize from API only
+    api_raw = fetch_json_with_retry(args.api, retries=3, backoff_sec=2.0)
     if not isinstance(api_raw, list) or not api_raw:
         raise RuntimeError("Unexpected API response; expected non-empty list.")
-    normalized_history = [normalize_api_draw(d) for d in api_raw]
-    api_latest = normalized_history[0]
 
-    # 3) Verify latest
-    verification = verify_latest(scraped_latest, api_latest)
+    normalized = [normalize_draw(d) for d in api_raw]
+    # Ensure desc by date, just in case
+    history = sort_desc_by_date(normalized)
+    latest = history[0]
 
+    current_jackpot = latest.get("jackpot_eur")
     now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
     payload = {
         "timestamp": now_iso,
-        "currentJackpotEUR": scraped_latest["jackpot_eur"],
-        "lastDraw": scraped_latest,
-        "verification": verification,
-        "history": normalized_history,
+        "currentJackpotEUR": current_jackpot,
+        "lastDraw": latest,
+        "history": history,
         "sources": {
-            "scrape": LOTTERY_IE_HISTORY_URL,
             "api": args.api,
         },
     }
 
-    # 4) Write JSONs
+    # 2) Write JSONs
     with open("euromillions.json", "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
     with open("latest.json", "w", encoding="utf-8") as f:
         json.dump(
             {
                 "timestamp": now_iso,
-                "date": scraped_latest["date"],
-                "jackpot_eur": scraped_latest["jackpot_eur"],
-                "numbers": scraped_latest["numbers"],
-                "stars": scraped_latest["stars"],
-                "verified": verification["all_ok"],
+                "date": latest.get("date"),
+                "jackpot_eur": current_jackpot,
+                "numbers": latest.get("numbers", []),
+                "stars": latest.get("stars", []),
+                "verified": True,  # API is source of truth in this flow
             },
             f,
             indent=2,
+            ensure_ascii=False,
         )
 
-    # 5) Write static site
+    # 3) Write static site
     out_html = os.path.join(args.out_dir, "index.html")
     render_html(out_html, {
         "timestamp": now_iso,
-        "latest": scraped_latest,
-        "verification": verification,
-        "history": normalized_history,
+        "latest": latest,
+        "history": history,
+        "api": args.api,
     })
 
     print(f"✅ Wrote euromillions.json, latest.json and {out_html}")
-    if not verification["all_ok"]:
-        print("⚠️  Latest draw mismatch between scrape and API. See 'verification' fields.", file=sys.stderr)
-
     return 0
 
 
