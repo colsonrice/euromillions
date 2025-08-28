@@ -4,6 +4,7 @@ update_euromillions.py  — API-only
 
 - Fetches EuroMillions draws from Pedro Mealha's API (most recent first)
 - Normalizes fields (date, numbers, stars, jackpot in EUR)
+- Jackpot is derived from the prize tiers, preferring 5+2 ("matched_numbers": 5, "matched_stars": 2)
 - Writes:
     * euromillions.json  (timestamp, currentJackpotEUR, lastDraw, history)
     * latest.json        (compact latest-only view)
@@ -30,7 +31,7 @@ import requests
 API_URL_DEFAULT = "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; EuroMillionsFetcher/1.1; +github-actions)"
+    "User-Agent": "Mozilla/5.0 (compatible; EuroMillionsFetcher/1.2; +github-actions)"
 }
 
 
@@ -49,14 +50,19 @@ def fetch_json_with_retry(url: str, retries: int = 3, backoff_sec: float = 2.0) 
 
 
 def _parse_euro_to_int(val: Any) -> Optional[int]:
-    # Accept numeric or strings like "€26,800,624"
+    """Coerce numbers or strings like '€26,800,624' or '26800624.3' to int euros."""
     if val is None:
         return None
     if isinstance(val, (int, float)) and not isinstance(val, bool):
         return int(val)
     if isinstance(val, str):
-        digits = re.sub(r"[^\d]", "", val)
-        return int(digits) if digits else None
+        # keep digits and decimal separator, then truncate
+        m = re.findall(r"\d+(?:\.\d+)?", val.replace(",", ""))
+        if m:
+            try:
+                return int(float(m[0]))
+            except Exception:
+                return None
     return None
 
 
@@ -67,11 +73,81 @@ def _as_numbers_list(v: Any) -> List[int]:
             try:
                 out.append(int(x))
             except Exception:
-                pass
+                # strings like "02"
+                try:
+                    out.append(int(str(x).strip()))
+                except Exception:
+                    pass
         return out
     if isinstance(v, str):
         return [int(x) for x in re.findall(r"\d{1,2}", v)]
     return []
+
+
+def _to_int_maybe(x: Any) -> Optional[int]:
+    try:
+        return int(x)
+    except Exception:
+        try:
+            return int(float(x))
+        except Exception:
+            return None
+
+
+def _extract_jackpot_from_tiers(raw: Dict[str, Any]) -> Optional[int]:
+    """
+    Walk the raw draw dict to find prize tiers. Prefer 5+2 tier's 'prize'.
+    If not found, return the maximum prize seen among tiers.
+    Handles shapes like:
+      {"matched_numbers":5,"matched_stars":2,"prize":26800624.3,"winners":0}
+    nested anywhere (e.g., in raw["prizes"], raw["breakdown"], raw["prizeCategories"], etc.)
+    """
+    tiers: List[Dict[str, Any]] = []
+
+    def recurse(o: Any) -> None:
+        if isinstance(o, dict):
+            # Heuristic: a "tier-like" dict has a prize and either matched_numbers or matched_stars
+            has_prize = any(k in o for k in ("prize", "amount", "jackpot"))
+            if has_prize and ("matched_numbers" in o or "matched_stars" in o):
+                tiers.append(o)
+            for v in o.values():
+                recurse(v)
+        elif isinstance(o, list):
+            for item in o:
+                recurse(item)
+
+    recurse(raw)
+
+    # Prefer exact 5+2
+    for t in tiers:
+        mn = _to_int_maybe(t.get("matched_numbers"))
+        ms = _to_int_maybe(t.get("matched_stars"))
+        if mn == 5 and ms == 2:
+            prize = _parse_euro_to_int(t.get("prize") or t.get("amount") or t.get("jackpot"))
+            if prize is not None:
+                return prize
+
+    # Fallback: maximum prize found among tiers
+    best = None
+    for t in tiers:
+        p = _parse_euro_to_int(t.get("prize") or t.get("amount") or t.get("jackpot"))
+        if p is not None and (best is None or p > best):
+            best = p
+    return best
+
+
+def extract_jackpot_eur(raw: Dict[str, Any]) -> Optional[int]:
+    """
+    Jackpot resolution order:
+      1) Top-level 'jackpot' / 'prize' / 'jackpot_eur'
+      2) Prize tiers (prefer 5+2, else max prize)
+    """
+    for k in ("jackpot", "prize", "jackpot_eur"):
+        v = raw.get(k)
+        j = _parse_euro_to_int(v)
+        if j is not None:
+            return j
+    return _extract_jackpot_from_tiers(raw)
 
 
 def normalize_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -93,7 +169,7 @@ def normalize_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
     numbers = _as_numbers_list(raw.get("numbers") or raw.get("numbers_main"))
     stars = _as_numbers_list(raw.get("stars") or raw.get("lucky_stars"))
 
-    jackpot_eur = _parse_euro_to_int(raw.get("jackpot") or raw.get("prize") or raw.get("jackpot_eur"))
+    jackpot_eur = extract_jackpot_eur(raw)
 
     return {
         "id": raw.get("id") or raw.get("draw_id") or raw.get("drawId"),
@@ -129,7 +205,11 @@ def render_html(out_path: str, context: Dict[str, Any]) -> None:
     def stars_html_fn(nums: List[int]) -> str:
         return "".join(f'<span class="star">{n}</span>' for n in nums)
 
-    jackpot_fmt = f"€{latest['jackpot_eur']:,}" if isinstance(latest.get("jackpot_eur"), (int, float)) else "—"
+    jackpot_fmt = (
+        f"€{latest['jackpot_eur']:,}"
+        if isinstance(latest.get("jackpot_eur"), (int, float))
+        else "—"
+    )
     numbers_html = balls_html(latest.get("numbers", []))
     stars_html = stars_html_fn(latest.get("stars", []))
 
@@ -244,7 +324,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         raise RuntimeError("Unexpected API response; expected non-empty list.")
 
     normalized = [normalize_draw(d) for d in api_raw]
-    # Ensure desc by date, just in case
     history = sort_desc_by_date(normalized)
     latest = history[0]
 
