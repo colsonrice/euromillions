@@ -3,17 +3,21 @@ name: Update EuroMillions data
 on:
   workflow_dispatch:   # allow manual runs
   schedule:
-    # Morning after Tuesday draw (Wednesday 07:00 UTC ~ 08:00 CET/CEST)
-    - cron: "0 7 * * 3"
-    # Backup run later the same day (Wednesday 13:00 UTC ~ 14:00 CET/CEST)
-    - cron: "0 13 * * 3"
-    # Morning after Friday draw (Saturday 07:00 UTC ~ 08:00 CET/CEST)
-    - cron: "0 7 * * 6"
-    # Backup run later the same day (Saturday 13:00 UTC ~ 14:00 CET/CEST)
-    - cron: "0 13 * * 6"
+    # Daily EU morning runs:
+    # 06:00 UTC ≈ 07:00 CET / 08:00 CEST
+    - cron: "0 6 * * *"
+    # 08:00 UTC ≈ 09:00 CET / 10:00 CEST
+    - cron: "0 8 * * *"
+    # Midday follow-up:
+    # 12:00 UTC ≈ 13:00 CET / 14:00 CEST
+    - cron: "0 12 * * *"
 
 permissions:
   contents: write
+
+concurrency:
+  group: euromillions-update
+  cancel-in-progress: true
 
 jobs:
   update:
@@ -32,14 +36,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Update EuroMillions data (API only)
+      - name: Update EuroMillions data (scrape + API)
         run: |
-          python update_euromillions.py --out-dir site
+          python update_euromillions.py \
+            --jackpot-url "https://www.lottery.ie/draw-games/euromillions" \
+            --out-dir site
 
       - name: Commit results
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "chore: update EuroMillions data (API-only)"
+          commit_message: "chore: update EuroMillions data (scrape + API)"
           file_pattern: |
             euromillions.json
             latest.json
