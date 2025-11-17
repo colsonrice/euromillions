@@ -1,6 +1,6 @@
 {
-  "timestamp": "2025-11-17T06:31:02Z",
-  "currentJackpotEUR": 294048,
+  "timestamp": "2025-11-17T08:33:06Z",
+  "currentJackpotEUR": 135000000,
   "lastDraw": {
     "id": 4046,
     "date": "2025-11-14",
@@ -211721,6 +211721,7 @@
   "sources": {
     "api": "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc",
     "jackpotPage": "https://www.lottery.ie/draw-games/euromillions",
-    "currentJackpotSource": "api"
+    "currentJackpotSource": "lottery.ie",
+    "currentJackpotText": "€135 Million Jackpot"
   }
 }
