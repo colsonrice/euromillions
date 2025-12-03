@@ -1,120 +1,233 @@
 {
-  "timestamp": "2025-12-02T12:57:12Z",
-  "currentJackpotEUR": 17000000,
+  "timestamp": "2025-12-03T06:32:08Z",
+  "currentJackpotEUR": 130000000,
   "lastDraw": {
-    "id": 4050,
-    "date": "2025-11-28",
+    "id": 4051,
+    "date": "2025-12-02",
     "numbers": [
-      5,
-      29,
-      33,
-      39,
-      42
+      4,
+      13,
+      14,
+      20,
+      41
     ],
     "stars": [
-      3,
-      9
+      6,
+      12
     ],
-    "jackpot_eur": 178656733,
+    "jackpot_eur": 17000000,
     "raw": {
-      "date": "2025-11-28",
-      "draw_id": 952025,
-      "has_winner": true,
-      "id": 4050,
+      "date": "2025-12-02",
+      "draw_id": 962025,
+      "has_winner": false,
+      "id": 4051,
       "numbers": [
-        "5",
-        "29",
-        "33",
-        "39",
-        "42"
+        "4",
+        "13",
+        "14",
+        "20",
+        "41"
       ],
       "prizes": [
         {
           "matched_numbers": 2,
           "matched_stars": 0,
-          "prize": 4.25,
-          "winners": 1533526
+          "prize": 3.68,
+          "winners": 860109
         },
         {
           "matched_numbers": 2,
           "matched_stars": 1,
-          "prize": 5.4,
-          "winners": 749530
+          "prize": 6.02,
+          "winners": 326849
         },
         {
           "matched_numbers": 1,
           "matched_stars": 2,
-          "prize": 5.28,
-          "winners": 243240
+          "prize": 7.96,
+          "winners": 78527
         },
         {
           "matched_numbers": 3,
           "matched_stars": 0,
-          "prize": 10.32,
-          "winners": 102915
+          "prize": 8.87,
+          "winners": 58195
         },
         {
           "matched_numbers": 3,
           "matched_stars": 1,
-          "prize": 11.47,
-          "winners": 49711
+          "prize": 12.62,
+          "winners": 21976
         },
         {
           "matched_numbers": 2,
           "matched_stars": 2,
-          "prize": 11.08,
-          "winners": 46143
+          "prize": 16.9,
+          "winners": 14715
         },
         {
           "matched_numbers": 4,
           "matched_stars": 0,
-          "prize": 46.03,
-          "winners": 2222
+          "prize": 43.59,
+          "winners": 1141
         },
         {
           "matched_numbers": 3,
           "matched_stars": 2,
-          "prize": 48.72,
-          "winners": 2987
+          "prize": 70.5,
+          "winners": 1004
         },
         {
           "matched_numbers": 4,
           "matched_stars": 1,
-          "prize": 130.63,
-          "winners": 1054
+          "prize": 143.37,
+          "winners": 467
         },
         {
           "matched_numbers": 4,
           "matched_stars": 2,
-          "prize": 1245.73,
-          "winners": 60
+          "prize": 1580.34,
+          "winners": 23
         },
         {
           "matched_numbers": 5,
           "matched_stars": 0,
-          "prize": 39994.5,
-          "winners": 6
+          "prize": 12966.25,
+          "winners": 9
         },
         {
           "matched_numbers": 5,
           "matched_stars": 1,
-          "prize": 205348.83,
-          "winners": 5
+          "prize": 249653.59,
+          "winners": 2
         },
         {
           "matched_numbers": 5,
           "matched_stars": 2,
-          "prize": 178656733,
-          "winners": 1
+          "prize": 17000000,
+          "winners": 0
         }
       ],
       "stars": [
-        "3",
-        "9"
+        "6",
+        "12"
       ]
     }
   },
   "history": [
+    {
+      "id": 4051,
+      "date": "2025-12-02",
+      "numbers": [
+        4,
+        13,
+        14,
+        20,
+        41
+      ],
+      "stars": [
+        6,
+        12
+      ],
+      "jackpot_eur": 17000000,
+      "raw": {
+        "date": "2025-12-02",
+        "draw_id": 962025,
+        "has_winner": false,
+        "id": 4051,
+        "numbers": [
+          "4",
+          "13",
+          "14",
+          "20",
+          "41"
+        ],
+        "prizes": [
+          {
+            "matched_numbers": 2,
+            "matched_stars": 0,
+            "prize": 3.68,
+            "winners": 860109
+          },
+          {
+            "matched_numbers": 2,
+            "matched_stars": 1,
+            "prize": 6.02,
+            "winners": 326849
+          },
+          {
+            "matched_numbers": 1,
+            "matched_stars": 2,
+            "prize": 7.96,
+            "winners": 78527
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 0,
+            "prize": 8.87,
+            "winners": 58195
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 1,
+            "prize": 12.62,
+            "winners": 21976
+          },
+          {
+            "matched_numbers": 2,
+            "matched_stars": 2,
+            "prize": 16.9,
+            "winners": 14715
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 0,
+            "prize": 43.59,
+            "winners": 1141
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 2,
+            "prize": 70.5,
+            "winners": 1004
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 1,
+            "prize": 143.37,
+            "winners": 467
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 2,
+            "prize": 1580.34,
+            "winners": 23
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 0,
+            "prize": 12966.25,
+            "winners": 9
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 1,
+            "prize": 249653.59,
+            "winners": 2
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 2,
+            "prize": 17000000,
+            "winners": 0
+          }
+        ],
+        "stars": [
+          "6",
+          "12"
+        ]
+      }
+    },
     {
       "id": 4050,
       "date": "2025-11-28",
@@ -212174,6 +212287,6 @@
     "api": "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc",
     "jackpotPage": "https://www.lottery.ie/draw-games/euromillions",
     "currentJackpotSource": "lottery.ie",
-    "currentJackpotText": "€17 Million Jackpot"
+    "currentJackpotText": "€130 Million Jackpot"
   }
 }
