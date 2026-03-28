@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-03-27T13:21:27Z",
-  "currentJackpotEUR": 65000000,
+  "timestamp": "2026-03-28T06:59:11Z",
+  "currentJackpotEUR": 70000000,
   "lastDraw": {
     "id": 4083,
     "date": "2026-03-24",
@@ -215903,6 +215903,6 @@
     "api": "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc",
     "jackpotPage": "https://www.lottery.ie/draw-games/euromillions",
     "currentJackpotSource": "lottery.ie",
-    "currentJackpotText": "€65 Million Jackpot"
+    "currentJackpotText": "€70 Million Jackpot"
   }
 }
