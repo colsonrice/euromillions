@@ -1,120 +1,233 @@
 {
-  "timestamp": "2026-04-17T09:22:03Z",
-  "currentJackpotEUR": 130000000,
+  "timestamp": "2026-04-18T07:07:57Z",
+  "currentJackpotEUR": 145000000,
   "lastDraw": {
-    "id": 4089,
-    "date": "2026-04-14",
+    "id": 4090,
+    "date": "2026-04-17",
     "numbers": [
-      1,
-      2,
-      4,
+      22,
+      23,
       28,
-      44
+      41,
+      47
     ],
     "stars": [
-      5,
-      12
+      6,
+      8
     ],
-    "jackpot_eur": 116712657,
+    "jackpot_eur": 132281196,
     "raw": {
-      "date": "2026-04-14",
-      "draw_id": 302026,
+      "date": "2026-04-17",
+      "draw_id": 312026,
       "has_winner": false,
-      "id": 4089,
+      "id": 4090,
       "numbers": [
-        "1",
-        "2",
-        "4",
+        "22",
+        "23",
         "28",
-        "44"
+        "41",
+        "47"
       ],
       "prizes": [
         {
           "matched_numbers": 2,
           "matched_stars": 0,
-          "prize": 3.89,
-          "winners": 1122055
+          "prize": 4.22,
+          "winners": 1455435
         },
         {
           "matched_numbers": 2,
           "matched_stars": 1,
-          "prize": 5.82,
-          "winners": 466267
+          "prize": 5.75,
+          "winners": 663338
         },
         {
           "matched_numbers": 1,
           "matched_stars": 2,
-          "prize": 7.85,
-          "winners": 109721
+          "prize": 6.28,
+          "winners": 192949
         },
         {
           "matched_numbers": 3,
           "matched_stars": 0,
-          "prize": 8.83,
-          "winners": 80566
+          "prize": 11.09,
+          "winners": 90194
         },
         {
           "matched_numbers": 3,
           "matched_stars": 1,
-          "prize": 11.8,
-          "winners": 32379
+          "prize": 13.05,
+          "winners": 41164
         },
         {
           "matched_numbers": 2,
           "matched_stars": 2,
-          "prize": 16.84,
-          "winners": 20342
+          "prize": 14.01,
+          "winners": 34393
         },
         {
           "matched_numbers": 4,
           "matched_stars": 0,
-          "prize": 42.92,
-          "winners": 1597
+          "prize": 56,
+          "winners": 1721
         },
         {
           "matched_numbers": 3,
           "matched_stars": 2,
-          "prize": 69.28,
-          "winners": 1408
+          "prize": 65.84,
+          "winners": 2083
         },
         {
           "matched_numbers": 4,
           "matched_stars": 1,
-          "prize": 139.38,
-          "winners": 662
+          "prize": 152.09,
+          "winners": 853
         },
         {
           "matched_numbers": 4,
           "matched_stars": 2,
-          "prize": 1353.85,
+          "prize": 1903.48,
           "winners": 37
         },
         {
           "matched_numbers": 5,
           "matched_stars": 0,
-          "prize": 80411.66,
-          "winners": 2
+          "prize": 17393.42,
+          "winners": 13
         },
         {
           "matched_numbers": 5,
           "matched_stars": 1,
-          "prize": 344056.47,
-          "winners": 2
+          "prize": 322491.16,
+          "winners": 3
         },
         {
           "matched_numbers": 5,
           "matched_stars": 2,
-          "prize": 116712657,
+          "prize": 132281195.8,
           "winners": 0
         }
       ],
       "stars": [
-        "5",
-        "12"
+        "6",
+        "8"
       ]
     }
   },
   "history": [
+    {
+      "id": 4090,
+      "date": "2026-04-17",
+      "numbers": [
+        22,
+        23,
+        28,
+        41,
+        47
+      ],
+      "stars": [
+        6,
+        8
+      ],
+      "jackpot_eur": 132281196,
+      "raw": {
+        "date": "2026-04-17",
+        "draw_id": 312026,
+        "has_winner": false,
+        "id": 4090,
+        "numbers": [
+          "22",
+          "23",
+          "28",
+          "41",
+          "47"
+        ],
+        "prizes": [
+          {
+            "matched_numbers": 2,
+            "matched_stars": 0,
+            "prize": 4.22,
+            "winners": 1455435
+          },
+          {
+            "matched_numbers": 2,
+            "matched_stars": 1,
+            "prize": 5.75,
+            "winners": 663338
+          },
+          {
+            "matched_numbers": 1,
+            "matched_stars": 2,
+            "prize": 6.28,
+            "winners": 192949
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 0,
+            "prize": 11.09,
+            "winners": 90194
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 1,
+            "prize": 13.05,
+            "winners": 41164
+          },
+          {
+            "matched_numbers": 2,
+            "matched_stars": 2,
+            "prize": 14.01,
+            "winners": 34393
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 0,
+            "prize": 56,
+            "winners": 1721
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 2,
+            "prize": 65.84,
+            "winners": 2083
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 1,
+            "prize": 152.09,
+            "winners": 853
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 2,
+            "prize": 1903.48,
+            "winners": 37
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 0,
+            "prize": 17393.42,
+            "winners": 13
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 1,
+            "prize": 322491.16,
+            "winners": 3
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 2,
+            "prize": 132281195.8,
+            "winners": 0
+          }
+        ],
+        "stars": [
+          "6",
+          "8"
+        ]
+      }
+    },
     {
       "id": 4089,
       "date": "2026-04-14",
@@ -216581,6 +216694,6 @@
     "api": "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc",
     "jackpotPage": "https://www.lottery.ie/draw-games/euromillions",
     "currentJackpotSource": "lottery.ie",
-    "currentJackpotText": "€130 Million Jackpot"
+    "currentJackpotText": "€145 Million Jackpot"
   }
 }
