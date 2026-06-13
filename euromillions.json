@@ -1,120 +1,233 @@
 {
-  "timestamp": "2026-06-12T15:29:52Z",
-  "currentJackpotEUR": 17000000,
+  "timestamp": "2026-06-13T08:57:39Z",
+  "currentJackpotEUR": 25000000,
   "lastDraw": {
-    "id": 4105,
-    "date": "2026-06-09",
+    "id": 4106,
+    "date": "2026-06-12",
     "numbers": [
-      2,
+      4,
       7,
-      23,
-      44,
-      46
+      14,
+      22,
+      23
     ],
     "stars": [
-      3,
-      5
+      1,
+      7
     ],
-    "jackpot_eur": 174984088,
+    "jackpot_eur": 17000000,
     "raw": {
-      "date": "2026-06-09",
-      "draw_id": 462026,
-      "has_winner": true,
-      "id": 4105,
+      "date": "2026-06-12",
+      "draw_id": 472026,
+      "has_winner": false,
+      "id": 4106,
       "numbers": [
-        "2",
+        "4",
         "7",
-        "23",
-        "44",
-        "46"
+        "14",
+        "22",
+        "23"
       ],
       "prizes": [
         {
           "matched_numbers": 2,
           "matched_stars": 0,
-          "prize": 3.98,
-          "winners": 1424090
+          "prize": 3.34,
+          "winners": 1209750
         },
         {
           "matched_numbers": 2,
           "matched_stars": 1,
-          "prize": 4.72,
-          "winners": 745660
+          "prize": 4.23,
+          "winners": 593648
         },
         {
           "matched_numbers": 1,
           "matched_stars": 2,
-          "prize": 5.54,
-          "winners": 201996
+          "prize": 5.82,
+          "winners": 136915
         },
         {
           "matched_numbers": 3,
           "matched_stars": 0,
-          "prize": 9.22,
-          "winners": 100180
+          "prize": 6.06,
+          "winners": 108670
         },
         {
           "matched_numbers": 3,
           "matched_stars": 1,
-          "prize": 9.42,
-          "winners": 52650
+          "prize": 6.76,
+          "winners": 52307
         },
         {
           "matched_numbers": 2,
           "matched_stars": 2,
-          "prize": 11.66,
-          "winners": 38150
+          "prize": 9.91,
+          "winners": 32004
         },
         {
           "matched_numbers": 4,
           "matched_stars": 0,
-          "prize": 43.31,
-          "winners": 2055
+          "prize": 23.62,
+          "winners": 2686
         },
         {
           "matched_numbers": 3,
           "matched_stars": 2,
-          "prize": 49.16,
-          "winners": 2576
+          "prize": 33.49,
+          "winners": 2696
         },
         {
           "matched_numbers": 4,
           "matched_stars": 1,
-          "prize": 123.77,
-          "winners": 968
+          "prize": 55.72,
+          "winners": 1533
         },
         {
           "matched_numbers": 4,
           "matched_stars": 2,
-          "prize": 1204.46,
-          "winners": 54
+          "prize": 602.31,
+          "winners": 77
         },
         {
           "matched_numbers": 5,
           "matched_stars": 0,
-          "prize": 23201.76,
-          "winners": 9
+          "prize": 11453.67,
+          "winners": 13
         },
         {
           "matched_numbers": 5,
           "matched_stars": 1,
-          "prize": 148909.66,
-          "winners": 6
+          "prize": 212362.35,
+          "winners": 3
         },
         {
           "matched_numbers": 5,
           "matched_stars": 2,
-          "prize": 174984088,
-          "winners": 1
+          "prize": 17000000,
+          "winners": 0
         }
       ],
       "stars": [
-        "3",
-        "5"
+        "1",
+        "7"
       ]
     }
   },
   "history": [
+    {
+      "id": 4106,
+      "date": "2026-06-12",
+      "numbers": [
+        4,
+        7,
+        14,
+        22,
+        23
+      ],
+      "stars": [
+        1,
+        7
+      ],
+      "jackpot_eur": 17000000,
+      "raw": {
+        "date": "2026-06-12",
+        "draw_id": 472026,
+        "has_winner": false,
+        "id": 4106,
+        "numbers": [
+          "4",
+          "7",
+          "14",
+          "22",
+          "23"
+        ],
+        "prizes": [
+          {
+            "matched_numbers": 2,
+            "matched_stars": 0,
+            "prize": 3.34,
+            "winners": 1209750
+          },
+          {
+            "matched_numbers": 2,
+            "matched_stars": 1,
+            "prize": 4.23,
+            "winners": 593648
+          },
+          {
+            "matched_numbers": 1,
+            "matched_stars": 2,
+            "prize": 5.82,
+            "winners": 136915
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 0,
+            "prize": 6.06,
+            "winners": 108670
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 1,
+            "prize": 6.76,
+            "winners": 52307
+          },
+          {
+            "matched_numbers": 2,
+            "matched_stars": 2,
+            "prize": 9.91,
+            "winners": 32004
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 0,
+            "prize": 23.62,
+            "winners": 2686
+          },
+          {
+            "matched_numbers": 3,
+            "matched_stars": 2,
+            "prize": 33.49,
+            "winners": 2696
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 1,
+            "prize": 55.72,
+            "winners": 1533
+          },
+          {
+            "matched_numbers": 4,
+            "matched_stars": 2,
+            "prize": 602.31,
+            "winners": 77
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 0,
+            "prize": 11453.67,
+            "winners": 13
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 1,
+            "prize": 212362.35,
+            "winners": 3
+          },
+          {
+            "matched_numbers": 5,
+            "matched_stars": 2,
+            "prize": 17000000,
+            "winners": 0
+          }
+        ],
+        "stars": [
+          "1",
+          "7"
+        ]
+      }
+    },
     {
       "id": 4105,
       "date": "2026-06-09",
@@ -218389,6 +218502,6 @@
     "api": "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc",
     "jackpotPage": "https://www.lottery.ie/draw-games/euromillions",
     "currentJackpotSource": "lottery.ie",
-    "currentJackpotText": "€17 Million Jackpot"
+    "currentJackpotText": "€25 Million Jackpot"
   }
 }
