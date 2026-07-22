@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-07-21T10:26:55Z",
-  "currentJackpotEUR": 60000000,
+  "timestamp": "2026-07-22T10:27:55Z",
+  "currentJackpotEUR": 70000000,
   "lastDraw": {
     "id": 4116,
     "date": "2026-07-17",
@@ -219632,6 +219632,6 @@
     "api": "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc",
     "jackpotPage": "https://www.lottery.ie/draw-games/euromillions",
     "currentJackpotSource": "lottery.ie",
-    "currentJackpotText": "€60 Million Jackpot"
+    "currentJackpotText": "€70 Million Jackpot"
   }
 }
