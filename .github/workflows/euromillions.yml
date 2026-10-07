@@ -42,11 +42,16 @@ jobs:
             --jackpot-url "https://www.lottery.ie/draw-games/euromillions" \
             --out-dir site
 
+      # The script leaves euromillions.json alone when nothing changed, and then
+      # there is nothing to commit. It exits non-zero when a source let it
+      # down, after updating what it could fetch, so this step runs after a
+      # failed run too.
       - name: Commit results
+        if: ${{ !cancelled() }}
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: update EuroMillions data (scrape + API)"
-          file_pattern: |
-            euromillions.json
-            latest.json
-            site/**
+          # Only the feed is published. latest.json and site/** used to be
+          # listed here on lines of their own, but the action reads one line
+          # of file_pattern, so they have never been committed.
+          file_pattern: euromillions.json

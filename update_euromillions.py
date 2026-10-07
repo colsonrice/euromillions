@@ -7,12 +7,12 @@ CURRENT upcoming jackpot (e.g., "€40 Million Jackpot *"), while still using
 Pedro Mealha's API for last draw + history.
 
 Writes:
-  * euromillions.json
+  * euromillions.json   (compact JSON: the feed the PowerPlayAI app downloads)
       {
-        "timestamp": "...Z",
+        "timestamp": "...Z",                  # when the data below last changed
         "currentJackpotEUR": <scraped euros>,
-        "lastDraw": {... from API ...},
-        "history": [... from API ...],
+        "lastDraw": {"id", "date", "numbers", "stars", "jackpot_eur"},
+        "history": [... every draw in that shape, newest first ...],
         "sources": {
           "api": "<api url>",
           "jackpotPage": "https://www.lottery.ie/draw-games/euromillions",
@@ -40,6 +40,29 @@ Source API:
 
 Scrape target:
   https://www.lottery.ie/draw-games/euromillions
+
+Three rules the app that reads euromillions.json depends on:
+
+1. Every draw is one whole draw on a real day: five different numbers and two
+   different stars. A row from the API that is anything else is not published,
+   and not trimmed or repaired to fit.
+2. A run never publishes fewer draws than were published before. The API
+   answers 429 to many runs; then the published history stands and only the
+   jackpot is updated. A listing that is shorter than the published history,
+   or has a bad row in it, adds its whole draws and drops nothing. Only a
+   clean listing at least as long as the history replaces it. If the scrape
+   fails, the published jackpot stands.
+3. A run that changes nothing but the clock leaves the file alone, so the
+   workflow commits nothing and the app's conditional request is answered 304.
+   `timestamp` is when the data last changed, not when the script last ran.
+
+The run exits non-zero when the API could not be read or listed a bad row,
+when the published file could not be read, or when a draw was added but the
+jackpot could not be scraped. It publishes what it did fetch first. A run that
+fetched nothing writes nothing.
+
+latest.json and site/ are not published: the workflow commits only
+euromillions.json.
 """
 
 from __future__ import annotations
@@ -51,13 +74,18 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+import traceback
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
 API_URL_DEFAULT = "https://euromillions.api.pedromealha.dev/v1/draws?limit=5000&sort=desc"
 JACKPOT_URL_DEFAULT = "https://www.lottery.ie/draw-games/euromillions"
+
+# The feed the app downloads. The workflow checks out the published copy
+# before the script runs, so this is also where the last run's data is read.
+FEED_FILE = "euromillions.json"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; EuroMillionsFetcher/1.3; +github-actions)",
@@ -107,23 +135,6 @@ def _parse_euro_to_int(val: Any) -> Optional[int]:
             except Exception:
                 return None
     return None
-
-
-def _as_numbers_list(v: Any) -> List[int]:
-    if isinstance(v, list):
-        out: List[int] = []
-        for x in v:
-            try:
-                out.append(int(x))
-            except Exception:
-                try:
-                    out.append(int(str(x).strip()))
-                except Exception:
-                    pass
-        return out
-    if isinstance(v, str):
-        return [int(x) for x in re.findall(r"\d{1,2}", v)]
-    return []
 
 
 def _to_int_maybe(x: Any) -> Optional[int]:
@@ -200,18 +211,134 @@ def normalize_draw(raw: Dict[str, Any]) -> Dict[str, Any]:
     elif date_val is not None:
         date_iso = str(date_val)
 
-    numbers = _as_numbers_list(raw.get("numbers") or raw.get("numbers_main"))
-    stars = _as_numbers_list(raw.get("stars") or raw.get("lucky_stars"))
+    # As the API lists them. complete_draw() decides whether they are a draw.
+    numbers = raw.get("numbers") or raw.get("numbers_main")
+    stars = raw.get("stars") or raw.get("lucky_stars")
     jackpot_eur = extract_jackpot_eur(raw)
 
     return {
         "id": raw.get("id") or raw.get("draw_id") or raw.get("drawId"),
         "date": date_iso or "unknown",
-        "numbers": numbers[:5],
-        "stars": stars[:2],
+        "numbers": numbers,
+        "stars": stars,
         "jackpot_eur": jackpot_eur,
-        "raw": raw,
     }
+
+
+def _pick(values: Any, count: int, highest: int) -> Optional[List[int]]:
+    """
+    `count` different whole numbers, each from 1 to `highest`, or None. The API
+    writes each number as a string of digits and the feed as an integer; both
+    are read, as the app reads them. Nothing is repaired: one entry that is
+    neither spoils the list.
+    """
+    if not isinstance(values, list) or len(values) != count:
+        return None
+    picked: List[int] = []
+    for v in values:
+        if isinstance(v, str) and v.isascii() and v.isdigit():
+            v = int(v)
+        if type(v) is not int or not 1 <= v <= highest:
+            return None
+        picked.append(v)
+    return picked if len(set(picked)) == count else None
+
+
+def complete_draw(row: Any) -> Optional[Dict[str, Any]]:
+    """
+    The row as the feed publishes it, or None unless it is one whole draw on a
+    real day: five different numbers from 1-50 and two different stars from
+    1-12. Anything else is a row we do not understand. It is dropped whole;
+    trimming it to fit could publish a wrong result under a real date.
+
+    Rows from the API and rows already published both pass through here, so a
+    published row loses anything else it carried (until October 2026 that was
+    `raw`, the API's whole payload for the draw).
+    """
+    if not isinstance(row, dict):
+        return None
+    day = row.get("date")
+    try:
+        if not isinstance(day, str) or date.fromisoformat(day).isoformat() != day:
+            return None
+    except ValueError:
+        return None
+    numbers, stars = _pick(row.get("numbers"), 5, 50), _pick(row.get("stars"), 2, 12)
+    if numbers is None or stars is None:
+        return None
+    return {
+        "id": row.get("id"),
+        "date": day,
+        "numbers": numbers,
+        "stars": stars,
+        "jackpot_eur": row.get("jackpot_eur"),
+    }
+
+
+def merge_history(published: Any, fetched: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    One draw per day, newest first. Fetched draws win their day; published
+    draws the API did not list are kept.
+    """
+    by_day: Dict[str, Dict[str, Any]] = {}
+    for row in (published if isinstance(published, list) else []) + fetched:
+        draw = complete_draw(row)
+        if draw:
+            by_day[draw["date"]] = draw
+    return sort_desc_by_date(list(by_day.values()))
+
+
+def fetch_draws(url: str) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    The whole draws the API lists, and how many of its rows were not one.
+    Raises if the API cannot be read.
+    """
+    api_raw = fetch_json_with_retry(url, retries=3, backoff_sec=2.0)
+    if not isinstance(api_raw, list) or not api_raw:
+        raise RuntimeError("Unexpected API response; expected non-empty list.")
+    draws = [complete_draw(normalize_draw(d)) if isinstance(d, dict) else None for d in api_raw]
+    whole = [d for d in draws if d]
+    return whole, len(draws) - len(whole)
+
+
+def load_published(path: str = FEED_FILE) -> Optional[Dict[str, Any]]:
+    """
+    The feed as last published: {} if there is none, None if one is there but
+    cannot be read. A leading byte order mark is read past, as the app does.
+    """
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            feed = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return feed if isinstance(feed, dict) else None
+
+
+def same_data(payload: Dict[str, Any], published: Dict[str, Any]) -> bool:
+    """
+    True when the two feeds differ only in what describes the run: `timestamp`,
+    and `sources` apart from `currentJackpotSource`. That one says whether the
+    jackpot was scraped or stands in for one, and the next run reads it back,
+    so a change to it is a change.
+    """
+    def data(feed: Dict[str, Any]) -> Dict[str, Any]:
+        sources = feed.get("sources")
+        source = sources.get("currentJackpotSource") if isinstance(sources, dict) else None
+        return dict({k: v for k, v in feed.items() if k not in ("timestamp", "sources")}, currentJackpotSource=source)
+    return data(payload) == data(published)
+
+
+def write_whole(path: str, text: str) -> None:
+    """
+    Replaces the file in one step. The workflow commits the feed even after a
+    failed run, so a run that dies mid-write must leave the old file whole.
+    """
+    partial = f"{path}.partial"
+    with open(partial, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(partial, path)
 
 
 def sort_desc_by_date(draws: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -405,19 +532,31 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API_URL_DEFAULT, help="EuroMillions API endpoint.")
     ap.add_argument("--jackpot-url", default=JACKPOT_URL_DEFAULT, help="Page to scrape current jackpot from.")
-    ap.add_argument("--skip-scrape", action="store_true", help="Disable scraping and use API-only fallback for currentJackpotEUR.")
+    ap.add_argument("--skip-scrape", action="store_true", help="Disable scraping; currentJackpotEUR keeps its published value, or falls back to the API if there is none.")
     ap.add_argument("--out-dir", default="site", help="Directory to write the static site into.")
     args = ap.parse_args(argv)
 
-    # 1) Fetch & normalize from API
-    api_raw = fetch_json_with_retry(args.api, retries=3, backoff_sec=2.0)
-    if not isinstance(api_raw, list) or not api_raw:
-        raise RuntimeError("Unexpected API response; expected non-empty list.")
+    # Anything added here fails the run, after it has published what it could.
+    trouble: List[str] = []
 
-    normalized = [normalize_draw(d) for d in api_raw]
-    history = sort_desc_by_date(normalized)
-    latest = history[0]
-    latest_draw_jackpot = latest.get("jackpot_eur")
+    published = load_published()
+    if published is None:
+        trouble.append(f"{FEED_FILE} was on file but could not be read, so nothing in it could be kept.")
+        published = {}
+    published_history = merge_history(published.get("history"), [])
+
+    # 1) Fetch & normalize from API. If that fails, the published history stands.
+    fetched: List[Dict[str, Any]] = []
+    clean_listing = False
+    try:
+        fetched, skipped = fetch_draws(args.api)
+        clean_listing = not skipped
+        if skipped:
+            trouble.append(f"Rows the API listed that are not a whole draw, and were not published: {skipped}.")
+    except Exception as e:
+        trouble.append(f"{type(e).__name__}: {e}")
+        if not isinstance(e, RuntimeError):
+            traceback.print_exc()  # not the API being down: leave the trail
 
     # 2) Scrape current jackpot (next draw)
     scraped_eur: Optional[int] = None
@@ -429,9 +568,47 @@ def main(argv: Optional[List[str]] = None) -> int:
             # Silent fallback; we still produce output from API
             scraped_eur, matched_text = None, None
 
-    # Choose current jackpot: prefer scraped; else fall back to last-draw jackpot
-    current_jackpot = scraped_eur if scraped_eur is not None else latest_draw_jackpot
-    current_src = "lottery.ie" if scraped_eur is not None else "api"
+    if not fetched and scraped_eur is None:
+        print(f"⛔ Nothing fetched; {FEED_FILE} stands as published. {' '.join(trouble)}")
+        return 1
+
+    # The API lists every draw, so a clean listing at least as long as the
+    # published history is the history: what the API corrects, the feed
+    # corrects. Any other listing only adds to what is published. It replaces
+    # the days it lists and drops none.
+    listed = merge_history([], fetched)
+    if clean_listing and len(listed) >= len(published_history):
+        history = listed
+    else:
+        history = merge_history(published_history, listed)
+    if not history:
+        print(f"⛔ No draws fetched and none published; not writing {FEED_FILE}. {' '.join(trouble)}")
+        return 1
+    latest = history[0]
+    latest_draw_jackpot = latest.get("jackpot_eur")
+
+    # Choose current jackpot: prefer scraped; else keep the published one, with
+    # the published account of where it came from. The last draw's own jackpot
+    # is what was played for then, not what is on offer now, so it stands in
+    # only when there is no scraped jackpot to keep. A published stand-in is
+    # not kept: it follows the newest draw, as it always has.
+    published_jackpot = published.get("currentJackpotEUR")
+    published_sources = published.get("sources") if isinstance(published.get("sources"), dict) else {}
+    if (type(published_jackpot) is not int or published_jackpot <= 0
+            or published_sources.get("currentJackpotSource") == "api"):
+        published_jackpot = None
+    if scraped_eur is not None:
+        current_jackpot, current_src, current_text = scraped_eur, "lottery.ie", matched_text
+    elif published_jackpot:
+        current_jackpot = published_jackpot
+        current_src = published_sources.get("currentJackpotSource")
+        current_text = published_sources.get("currentJackpotText")
+        if published_history and latest["date"] > published_history[0]["date"]:
+            # Nothing in the feed can say the jackpot is behind the draws, so the run does.
+            trouble.append(f"The jackpot could not be scraped on the run that added the {latest['date']} draw; "
+                           f"the published €{published_jackpot:,} may be what that draw was played for.")
+    else:
+        current_jackpot, current_src, current_text = latest_draw_jackpot, "api", None
 
     now_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
@@ -446,17 +623,24 @@ def main(argv: Optional[List[str]] = None) -> int:
             "currentJackpotSource": current_src,
         },
     }
-    if matched_text:
-        payload["sources"]["currentJackpotText"] = matched_text
+    if current_text:
+        payload["sources"]["currentJackpotText"] = current_text
 
-    # 3) Write JSONs
-    with open("euromillions.json", "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False)
+    # 3) Write JSONs. A run that found nothing new leaves the feed alone, so
+    # the workflow has nothing to commit. latest.json and the site stay on the
+    # runner (the workflow publishes only the feed); they carry the feed's
+    # timestamp, so they would not change between its changes either.
+    changed = not same_data(payload, published)
+    if changed:
+        write_whole(FEED_FILE, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    feed_time = now_iso
+    if not changed and isinstance(published.get("timestamp"), str):
+        feed_time = published["timestamp"]
 
     with open("latest.json", "w", encoding="utf-8") as f:
         json.dump(
             {
-                "timestamp": now_iso,
+                "timestamp": feed_time,
                 "date": latest.get("date"),
                 "jackpot_eur": latest_draw_jackpot,      # from API (last draw)
                 "current_jackpot_eur": current_jackpot,  # from scrape (preferred)
@@ -472,7 +656,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # 4) Write static site
     out_html = os.path.join(args.out_dir, "index.html")
     render_html(out_html, {
-        "timestamp": now_iso,
+        "timestamp": feed_time,
         "latest": latest,
         "history": history,
         "api": args.api,
@@ -481,12 +665,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         "jackpotPage": args.jackpot_url,
     })
 
-    print("✅ Wrote euromillions.json, latest.json and", out_html)
+    if changed:
+        print(f"✅ Wrote {FEED_FILE} ({len(history)} draws), latest.json and {out_html}")
+    else:
+        print(f"✅ Nothing changed since {feed_time}; {FEED_FILE} stands as published. Wrote latest.json and {out_html}")
     if scraped_eur is not None:
         print(f"ℹ️  Scraped jackpot: €{scraped_eur:,} from {args.jackpot_url} ({matched_text})")
+    elif published_jackpot:
+        print(f"⚠️  Scrape unavailable; kept the published jackpot of €{published_jackpot:,}.")
     else:
         print("⚠️  Using API fallback for currentJackpotEUR (scrape unavailable).")
-    return 0
+    if not fetched:
+        print(f"⚠️  No draws fetched; kept the {len(history)} published.")
+    elif len(listed) < len(published_history):
+        print(f"⚠️  The API listed {len(listed)} draws, fewer than the {len(published_history)} published; none was dropped.")
+
+    # Whatever was fetched is published above. The run still fails when
+    # something let it down, so the failure shows on the Actions page.
+    for problem in trouble:
+        print(f"⛔ {problem}")
+    return 1 if trouble else 0
 
 
 if __name__ == "__main__":
